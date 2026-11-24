@@ -1,5 +1,5 @@
 import { clearLog, readLog } from "../background/log";
-import { getSettings, saveSettings } from "../shared/storage";
+import { getStoredSettings, HAS_BUILD_API_KEY, saveSettings } from "../shared/storage";
 import { MODELS, type LogEntry, type ModelId } from "../shared/types";
 
 const apiKey = byId<HTMLInputElement>("apiKey");
@@ -43,8 +43,13 @@ byId("clearLog").addEventListener("click", async () => {
 void load();
 
 async function load(): Promise<void> {
-    const settings = await getSettings();
+    // Only what was typed here is shown; the build-time key never appears in the page.
+    const settings = await getStoredSettings();
     apiKey.value = settings.apiKey;
+    if (HAS_BUILD_API_KEY) {
+        apiKey.placeholder = "використовується ключ зі збірки";
+        byId("buildKeyNote").hidden = false;
+    }
     model.value = settings.model;
     language.value = settings.language;
     blocklist.value = settings.blocklist.join("\n");

@@ -12,6 +12,10 @@
 
             <label for="apiKey">API-ключ Anthropic</label>
             <input id="apiKey" type="password" autocomplete="off" spellcheck="false" />
+            <p id="buildKeyNote" class="muted" hidden>
+                Ключ уже задано під час збірки (із середовища або <code>.env</code>), це поле можна
+                лишити порожнім. Якщо ввести ключ тут, використовуватиметься він.
+            </p>
             <p class="muted">
                 Зберігається лише в цьому браузері й надсилається тільки на api.anthropic.com. Запити
                 оплачуються з твого акаунта.
