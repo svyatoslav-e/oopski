@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="de">
+    <head>
+        <meta charset="utf-8" />
+        <title>Praxis Dr. Muster – Terminbuchung</title>
+        <style>
+            body { font: 16px system-ui; margin: 0; }
+            header, main, footer { padding: 16px 24px; }
+            nav a { margin-right: 16px; }
+            .btn { padding: 8px 14px; }
+            .spacer { height: 1400px; }
+            .offscreen-hidden { display: none; }
+        </style>
+    </head>
+    <body>
+        <header>
+            <nav aria-label="Hauptmenü">
+                <a href="/leistungen">Leistungen</a>
+                <a href="/termin"><span tabindex="0">Termin buchen</span></a>
+                <a href="https://partner.example.org/rezept?id=42">Rezept bestellen</a>
+                <button class="btn" aria-label="Menü öffnen" aria-expanded="false">☰</button>
+            </nav>
+        </header>
+
+        <main>
+            <h1>Online-Terminbuchung</h1>
+            <p>Willkommen in unserer Praxis. Bitte wählen Sie eine Sprechstunde.</p>
+
+            <section>
+                <h2>Allgemeine Sprechstunde</h2>
+                <button class="btn book">Auswählen</button>
+            </section>
+            <section>
+                <h2>Impfberatung</h2>
+                <button class="btn book">Auswählen</button>
+            </section>
+
+            <form aria-label="Ihre Angaben">
+                <label for="vorname">Vorname</label>
+                <input id="vorname" name="vorname" value="GEHEIM-Sviatoslav" required />
+                <label for="mail">E-Mail</label>
+                <input id="mail" type="email" placeholder="name@beispiel.de" />
+                <label for="kasse">Versicherung</label>
+                <select id="kasse">
+                    <option value="">Bitte wählen</option>
+                    <option>Gesetzlich</option>
+                    <option>Privat</option>
+                </select>
+                <label><input type="checkbox" checked /> Erinnerung per E-Mail</label>
+                <button type="submit" class="btn" disabled>Termin anfragen</button>
+            </form>
+
+            <button class="btn offscreen-hidden">Unsichtbar (display:none)</button>
+            <div aria-hidden="true"><button class="btn">Unsichtbar (aria-hidden)</button></div>
+
+            <shadow-card></shadow-card>
+
+            <iframe src="https://example.com/" width="400" height="200" title="Buchungs-Widget"></iframe>
+
+            <div class="spacer"></div>
+            <a id="bottom" href="/kontakt">Kontakt ganz unten</a>
+        </main>
+
+        <footer><a href="/impressum">Impressum</a></footer>
+
+        <script>
+            customElements.define(
+                "shadow-card",
+                class extends HTMLElement {
+                    connectedCallback() {
+                        this.attachShadow({ mode: "open" }).innerHTML =
+                            '<button class="btn">Rückruf anfordern</button>';
+                    }
+                },
+            );
+            // A click on the first "Auswählen" changes the page without navigating.
+            document.querySelector(".book").addEventListener("click", () => {
+                setTimeout(() => document.querySelector("h1").after(Object.assign(document.createElement("p"), { id: "picked", textContent: "Sprechstunde gewählt." })), 200);
+            });
+        </script>
+    </body>
+</html>
