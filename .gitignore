@@ -1,12 +1,16 @@
 # Dependencies (restore with `npm install`)
 node_modules/
 
+# Build output (load this folder in chrome://extensions)
+dist/
+
 # Local copy of the TensorFlow.js tarball and its unpacked contents;
 # not referenced by the extension, available from npm via package.json
 libs/
 
-# IDE
+# IDE and local tooling
 .idea/
+.claude/
 
 # macOS
 .DS_Store

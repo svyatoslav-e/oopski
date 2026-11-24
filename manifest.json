@@ -1,17 +1,22 @@
 {
     "manifest_version": 3,
     "name": "Oopski",
-    "version": "1.0",
-    "permissions": ["activeTab"],
+    "version": "0.2.0",
+    "description": "Називаєш мету — Oopski показує, куди клацнути далі на незнайомому сайті.",
+    "minimum_chrome_version": "120",
+    "permissions": ["sidePanel", "scripting", "storage", "tabs"],
     "host_permissions": ["<all_urls>"],
     "background": {
         "service_worker": "background.js"
     },
-    "content_scripts": [
-        {
-            "matches": ["<all_urls>"],
-            "js": ["content.js"],
-            "run_at": "document_idle"
-        }
-    ]
+    "action": {
+        "default_title": "Oopski"
+    },
+    "side_panel": {
+        "default_path": "sidepanel.html"
+    },
+    "options_ui": {
+        "page": "options.html",
+        "open_in_tab": true
+    }
 }
