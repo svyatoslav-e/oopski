@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="uk">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Oopski — налаштування</title>
+        <link rel="stylesheet" href="ui.css" />
+    </head>
+    <body>
+        <div class="page">
+            <h1>Oopski — налаштування</h1>
+
+            <label for="apiKey">API-ключ Anthropic</label>
+            <input id="apiKey" type="password" autocomplete="off" spellcheck="false" />
+            <p class="muted">
+                Зберігається лише в цьому браузері й надсилається тільки на api.anthropic.com. Запити
+                оплачуються з твого акаунта.
+            </p>
+
+            <label for="model">Модель</label>
+            <select id="model"></select>
+
+            <label for="language">Мова підказок</label>
+            <input id="language" type="text" />
+
+            <label for="blocklist">Додаткові заблоковані сайти</label>
+            <textarea id="blocklist" rows="3" placeholder="по одному домену на рядок"></textarea>
+            <p class="muted">
+                Банківські й платіжні сайти та сторінки з полями картки заблоковано завжди.
+            </p>
+
+            <div class="row">
+                <button id="save" class="primary">Зберегти</button>
+                <span id="saved" class="muted" hidden>Збережено</span>
+            </div>
+
+            <h2>Що надсилається моделі</h2>
+            <p class="muted">
+                Адреса сторінки без параметрів, заголовки, до 1500 символів тексту та список кнопок,
+                посилань і полів з їхніми підписами. Те, що ти ввів у поля, не надсилається.
+            </p>
+
+            <h2>Журнал кроків</h2>
+            <p class="muted">
+                Вердикт «не те» ставиться, коли ти натискаєш «Не те» в панелі. Вартість — оцінка за
+                прайсом API.
+            </p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Модель</th>
+                        <th>Кроків</th>
+                        <th>«Не те»</th>
+                        <th>Медіана, с</th>
+                        <th>Токенів на крок</th>
+                        <th>Вартість, $</th>
+                    </tr>
+                </thead>
+                <tbody id="summary"></tbody>
+            </table>
+            <div class="row">
+                <button id="exportLog">Експортувати JSON</button>
+                <button id="clearLog">Очистити журнал</button>
+            </div>
+        </div>
+        <script src="options.js"></script>
+    </body>
+</html>

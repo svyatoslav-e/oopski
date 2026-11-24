@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="uk">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Oopski</title>
+        <link rel="stylesheet" href="ui.css" />
+    </head>
+    <body>
+        <h1>Oopski</h1>
+
+        <section id="start">
+            <label for="goal">Що хочеш зробити на цьому сайті?</label>
+            <textarea id="goal" rows="3" placeholder="Наприклад: записатися до терапевта"></textarea>
+            <div class="row">
+                <button id="startButton" class="primary">Почати</button>
+                <button id="tourButton">Огляд сторінки</button>
+            </div>
+            <p id="startError" class="error" hidden></p>
+            <p class="muted" style="margin-top: 12px">
+                Oopski лише показує, куди натиснути. Клацаєш і вводиш дані ти.
+            </p>
+        </section>
+
+        <section id="session" hidden>
+            <p id="goalLine" class="muted"></p>
+            <div id="content"></div>
+            <div id="noteBox" hidden>
+                <label for="note">Уточнення (необов'язково)</label>
+                <input id="note" type="text" />
+            </div>
+            <div id="actions" class="row"></div>
+        </section>
+
+        <p style="margin-top: 24px">
+            <button id="optionsButton" class="link">Налаштування та журнал</button>
+        </p>
+
+        <details>
+            <summary>Діагностика</summary>
+            <p class="muted">Показує, що саме розширення бачить на сторінці. Модель не викликається.</p>
+            <div class="row">
+                <button id="debugSnapshot">Зробити знімок</button>
+                <input id="debugId" type="number" min="1" placeholder="№" style="width: 80px" />
+                <button id="debugHighlight">Підсвітити</button>
+            </div>
+            <pre id="debugOutput" hidden></pre>
+        </details>
+
+        <script src="sidepanel.js"></script>
+    </body>
+</html>
