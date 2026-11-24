@@ -1,5 +1,5 @@
-import type { ContentRequest, HighlightResult, SnapshotResult } from "../shared/types";
-import { clearHighlight, showHighlight } from "./highlight";
+import type { ContentRequest, RenderResult, SnapshotResult } from "../shared/types";
+import { removeCompanion, renderCompanion, showBusy } from "./companion";
 import { elementById, takeSnapshot } from "./snapshot";
 import { unwatch, watchTarget } from "./watch";
 
@@ -17,26 +17,30 @@ if (!window.__oopskiLoaded) {
         (
             request: ContentRequest,
             _sender,
-            respond: (result: SnapshotResult | HighlightResult | null) => void,
+            respond: (result: SnapshotResult | RenderResult | null) => void,
         ) => {
             switch (request.type) {
                 case "content/snapshot":
+                    // Element ids are about to be reassigned, so the old target no longer holds.
                     unwatch();
-                    clearHighlight();
+                    showBusy("Дивлюсь, що тут є…");
                     respond(takeSnapshot());
                     break;
-                case "content/highlight": {
-                    const el = elementById(request.id);
+                case "content/render": {
+                    const { view } = request;
+                    const el = view.targetId === null ? null : elementById(view.targetId);
+                    renderCompanion(view, el);
                     if (el) {
-                        showHighlight(el, request);
-                        watchTarget(el, request.action, clearHighlight);
+                        watchTarget(el, view.action, () => showBusy("Секунду…"));
+                    } else {
+                        unwatch();
                     }
-                    respond({ found: el !== null });
+                    respond({ found: view.targetId === null || el !== null });
                     break;
                 }
                 case "content/clear":
                     unwatch();
-                    clearHighlight();
+                    removeCompanion();
                     respond(null);
                     break;
             }

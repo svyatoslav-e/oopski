@@ -73,9 +73,12 @@ export interface StepPlan {
     instruction: string;
     why: string;
     outline: string[];
+    /** For need_info: the answers the person can pick from. Empty otherwise. */
+    options: string[];
 }
 
-export type StepOutcome = "acted" | "confirmed" | "wrong" | "navigated";
+/** redirected: the person skipped the step and picked a later item of the outline instead. */
+export type StepOutcome = "acted" | "confirmed" | "wrong" | "navigated" | "redirected";
 
 export interface HistoryItem {
     instruction: string;
@@ -107,6 +110,46 @@ export interface TourPlan {
     goals: string[];
 }
 
+// ---- On-page companion ---------------------------------------------------
+
+/** hello: greeting. looking: reading the page. shy: won't look (payment page, sensitive field). */
+export type CompanionMood = "hello" | "looking" | "pointing" | "asking" | "happy" | "confused" | "shy";
+
+export interface CompanionButton {
+    label: string;
+    /** Sent to the service worker when the button is clicked. */
+    message: PanelMessage;
+    primary?: boolean;
+}
+
+/**
+ * Everything the mascot and its speech bubble show. The service worker derives it
+ * from the session; the content script only draws it. The bubble starts with one
+ * short line; detail and further options appear only when the person asks.
+ */
+export interface CompanionView {
+    mood: CompanionMood;
+    /** Small label above the text, such as tour progress. */
+    title: string;
+    text: string;
+    /** Revealed by the "why" toggle. */
+    detail: string;
+    /** Element the mascot stands next to, or null to stay in its corner. */
+    targetId: number | null;
+    action: StepAction;
+    /** Host a highlighted link leads to when it leaves the site. */
+    destination: string;
+    /** Answers or goals to pick from, always visible. */
+    choices: CompanionButton[];
+    /** Further ways forward, behind a toggle labelled moreLabel. */
+    moreLabel: string;
+    more: CompanionButton[];
+    /** Compact row under the text. */
+    actions: CompanionButton[];
+    /** Free-text entry: "goal" starts guidance, "answer" continues with the typed note. */
+    input: "goal" | "answer" | null;
+}
+
 // ---- Session -------------------------------------------------------------
 
 export type SessionStatus =
@@ -126,6 +169,7 @@ export interface SessionState {
     goal: string;
     status: SessionStatus;
     tour: TourPlan | null;
+    /** -1 is the tour's opening summary; 0 and up are its stops. */
     tourIndex: number;
     /** Identifies the latest planning run so that stale results are dropped. */
     runId: string;
@@ -169,12 +213,18 @@ export interface LogEntry {
 
 // ---- Messages ------------------------------------------------------------
 
+/**
+ * Commands to the service worker, sent by the side panel and by the on-page companion.
+ * The companion leaves tabId out; the worker then uses the tab the message came from.
+ */
 export type PanelMessage =
-    | { type: "panel/start"; tabId: number; goal: string }
-    | { type: "panel/tour"; tabId: number }
+    | { type: "panel/start"; tabId?: number; goal: string }
+    | { type: "panel/tour"; tabId?: number }
+    | { type: "panel/open" }
     | { type: "panel/tourGo"; index: number }
     | { type: "panel/next"; note: string }
     | { type: "panel/wrong"; note: string }
+    | { type: "panel/jump"; target: string }
     | { type: "panel/retry" }
     | { type: "panel/stop" }
     | { type: "panel/debugSnapshot"; tabId: number }
@@ -182,16 +232,10 @@ export type PanelMessage =
 
 export type ContentRequest =
     | { type: "content/snapshot" }
-    | {
-          type: "content/highlight";
-          id: number;
-          action: StepAction;
-          instruction: string;
-          why: string;
-          destination: string;
-      }
+    | { type: "content/render"; view: CompanionView }
     | { type: "content/clear" };
 
 export type ContentEvent = { type: "content/acted" } | { type: "content/settled" };
 
-export type HighlightResult = { found: boolean };
+/** found is false when the view names a target element that is no longer on the page. */
+export type RenderResult = { found: boolean };

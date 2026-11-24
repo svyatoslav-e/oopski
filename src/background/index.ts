@@ -1,11 +1,12 @@
 import { getSession, getSettings, setSession } from "../shared/storage";
 import {
     MAX_STEPS_PER_SESSION,
+    type CompanionView,
     type ContentEvent,
     type ContentRequest,
-    type HighlightResult,
     type PageSnapshot,
     type PanelMessage,
+    type RenderResult,
     type SessionState,
     type Settings,
     type SnapshotElement,
@@ -15,13 +16,33 @@ import {
 import { blockReason, PAYMENT_FIELDS_MESSAGE } from "./guard";
 import { GuideError, planStep, planTour } from "./llm";
 import { appendLog, setVerdict } from "./log";
+import { debugView, helloView, viewOf } from "./view";
 
 /** The page may not be read; the message says why. */
 class BlockedError extends Error {}
 
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
+// The toolbar icon summons the mascot onto the page; the side panel is opened from
+// the mascot's bubble (or the icon's context menu) and holds settings and diagnostics.
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(console.error);
+
+chrome.action.onClicked.addListener((tab) => {
+    if (tab.id === undefined) return;
+    if (!/^https?:/.test(tab.url ?? "")) {
+        // The mascot can't live on browser pages; the panel explains why. This has to be
+        // called straight from the click, before anything is awaited.
+        void chrome.sidePanel.open({ tabId: tab.id });
+        return;
+    }
+    void summon(tab.id);
+});
 
 chrome.runtime.onMessage.addListener((message: PanelMessage | ContentEvent, sender, respond) => {
+    if (message.type === "panel/open") {
+        // Opening the panel is only allowed while the person's click is still "fresh".
+        if (sender.tab?.id !== undefined) void chrome.sidePanel.open({ tabId: sender.tab.id });
+        respond(null);
+        return false;
+    }
     // Responding only when the work is done keeps the service worker alive through the model call.
     handle(message, sender).then(respond, (error) => {
         console.error(error);
@@ -44,18 +65,18 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 async function handle(
-    message: PanelMessage | ContentEvent,
+    message: Exclude<PanelMessage, { type: "panel/open" }> | ContentEvent,
     sender: chrome.runtime.MessageSender,
 ): Promise<unknown> {
     switch (message.type) {
         case "panel/start":
-            await setSession(newSession(message.tabId, message.goal));
-            await runStep();
+        case "panel/tour": {
+            const tabId = message.tabId ?? sender.tab?.id;
+            if (tabId === undefined) return null;
+            await replaceSession(newSession(tabId, message.type === "panel/start" ? message.goal : ""));
+            await (message.type === "panel/start" ? runStep() : runTour());
             return null;
-        case "panel/tour":
-            await setSession(newSession(message.tabId, ""));
-            await runTour();
-            return null;
+        }
         case "panel/tourGo":
             await showTourStop(message.index);
             return null;
@@ -67,6 +88,10 @@ async function handle(
             await finishStep("wrong", message.note);
             await runStep();
             return null;
+        case "panel/jump":
+            await finishStep("redirected", message.target);
+            await runStep();
+            return null;
         case "panel/retry": {
             const session = await getSession();
             await (session?.goal ? runStep() : runTour());
@@ -74,23 +99,22 @@ async function handle(
         }
         case "panel/stop":
             await stopSession();
+            // The greeting has no session behind it; dismiss it on the tab that asked.
+            if (sender.tab?.id !== undefined) await clearTab(sender.tab.id);
             return null;
         case "panel/debugSnapshot":
             return snapshotTab(message.tabId);
         case "panel/debugHighlight":
-            return sendToTab<HighlightResult>(message.tabId, {
-                type: "content/highlight",
-                id: message.id,
-                action: "read",
-                instruction: `Елемент №${message.id}`,
-                why: "",
-                destination: "",
+            return sendToTab<RenderResult>(message.tabId, {
+                type: "content/render",
+                view: debugView(message.id),
             });
         case "content/acted": {
             const session = await getSession();
             if (session?.tabId === sender.tab?.id && session?.status === "waiting") {
                 await finishStep("acted", "");
-                await patchSession({ status: "settling" });
+                const acted = await getSession();
+                if (acted) await commit({ ...acted, status: "settling" });
             }
             return null;
         }
@@ -112,7 +136,7 @@ function newSession(tabId: number, goal: string): SessionState {
         goal,
         status: "thinking",
         tour: null,
-        tourIndex: 0,
+        tourIndex: -1,
         runId: "",
         runUrl: "",
         runStartedAt: 0,
@@ -126,20 +150,38 @@ function newSession(tabId: number, goal: string): SessionState {
     };
 }
 
-async function patchSession(patch: Partial<SessionState>): Promise<SessionState | null> {
-    const session = await getSession();
-    if (!session) return null;
-    const next = { ...session, ...patch };
-    await setSession(next);
-    return next;
+/** Starts a new session, taking the mascot off the previous session's tab if it was elsewhere. */
+async function replaceSession(session: SessionState): Promise<void> {
+    const previous = await getSession();
+    if (previous && previous.tabId !== session.tabId) {
+        await clearTab(previous.tabId);
+    }
+    await setSession(session);
+}
+
+/** Saves the session and shows it on the page. Returns whether its target element is there. */
+async function commit(session: SessionState): Promise<boolean> {
+    await setSession(session);
+    return render(session.tabId, viewOf(session));
 }
 
 async function stopSession(): Promise<void> {
     const session = await getSession();
     await setSession(null);
     if (session) {
-        await sendToTab(session.tabId, { type: "content/clear" }).catch(() => {});
+        await clearTab(session.tabId);
     }
+}
+
+/** Puts the mascot on the page: with the session if this tab has one, otherwise with a greeting. */
+async function summon(tabId: number): Promise<void> {
+    const session = await getSession();
+    try {
+        await inject(tabId);
+    } catch {
+        return; // A page extensions may not touch, such as the Web Store.
+    }
+    await render(tabId, session?.tabId === tabId ? viewOf(session) : helloView());
 }
 
 /** Records how the step on screen ended and removes it from the session. */
@@ -147,7 +189,9 @@ async function finishStep(outcome: StepOutcome, note: string): Promise<void> {
     const session = await getSession();
     if (!session?.step) return;
 
-    await setVerdict(session.logId, outcome === "wrong" ? "wrong" : outcome === "navigated" ? null : "ok");
+    // Skipping ahead or navigating away says nothing about whether the step was right.
+    const verdicts = { acted: "ok", confirmed: "ok", wrong: "wrong", navigated: null, redirected: null } as const;
+    await setVerdict(session.logId, verdicts[outcome]);
     await setSession({
         ...session,
         step: null,
@@ -191,7 +235,7 @@ async function onPageLoaded(tabId: number, url: string): Promise<void> {
 
 // ---- Planning runs -------------------------------------------------------
 
-/** Marks the session as thinking and returns it, or null if the tab is gone. */
+/** Marks the session as thinking, shows that on the page, and returns it; null if the tab is gone. */
 async function beginRun(): Promise<SessionState | null> {
     const session = await getSession();
     if (!session) return null;
@@ -210,7 +254,9 @@ async function beginRun(): Promise<SessionState | null> {
         runStartedAt: Date.now(),
         message: "",
     };
-    await setSession(run);
+    // After a navigation the page has no content script yet; without it there is no mascot.
+    await inject(run.tabId).catch(() => {});
+    await commit(run);
     return run;
 }
 
@@ -240,13 +286,13 @@ async function failRun(runId: string, error: unknown): Promise<void> {
     const session = await ifCurrent(runId);
     if (!session) return;
     if (error instanceof BlockedError) {
-        await setSession({ ...session, status: "blocked", message: error.message });
+        await commit({ ...session, status: "blocked", message: error.message });
     } else if (error instanceof GuideError) {
-        await setSession({ ...session, status: "error", message: error.message });
+        await commit({ ...session, status: "error", message: error.message });
     } else {
         console.error(error);
         const detail = error instanceof Error ? error.message : String(error);
-        await setSession({
+        await commit({
             ...session,
             status: "error",
             message: `Не вдалося прочитати цю сторінку: ${detail}`,
@@ -258,7 +304,7 @@ async function runStep(): Promise<void> {
     const run = await beginRun();
     if (!run) return;
     if (run.stepCount >= MAX_STEPS_PER_SESSION) {
-        await setSession({
+        await commit({
             ...run,
             status: "error",
             message: `Досягнуто межі в ${MAX_STEPS_PER_SESSION} кроків. Зупини й почни з уточненою метою.`,
@@ -288,33 +334,19 @@ async function runStep(): Promise<void> {
             latencyMs: result.latencyMs,
         });
 
-        const targetHost = target ? externalHost(target) : "";
-        // Saved before the highlight goes up, so a fast click finds the session already waiting.
-        await setSession({
+        const next: SessionState = {
             ...session,
             status: step.status === "step" ? "waiting" : step.status,
             step,
             targetName: target?.name ?? "",
-            targetHost,
+            targetHost: target ? externalHost(target) : "",
             stepCount: run.stepCount + 1,
             logId,
             message: "",
-        });
-
-        if (target && step.status === "step") {
-            const shown = await sendToTab<HighlightResult>(run.tabId, {
-                type: "content/highlight",
-                id: target.id,
-                action: step.action,
-                instruction: step.instruction,
-                why: step.why,
-                destination: targetHost,
-            });
-            if (!shown.found && (await ifCurrent(run.runId))) {
-                await patchSession({
-                    message: "Елемент щойно зник зі сторінки. Натисни «Не те», щоб отримати інший крок.",
-                });
-            }
+        };
+        const found = await commit(next);
+        if (target && step.status === "step" && !found && (await ifCurrent(run.runId))) {
+            await commit({ ...next, message: "Елемент щойно зник. Натисни «Не те»." });
         }
     } catch (error) {
         await failRun(run.runId, error);
@@ -349,36 +381,49 @@ async function runTour(): Promise<void> {
             outputTokens: result.outputTokens,
             latencyMs: result.latencyMs,
         });
-        await setSession({ ...session, status: "tour", tour, tourIndex: 0 });
-        await showTourStop(0);
+        // The tour opens on its one-line summary; the stops follow one at a time.
+        await commit({ ...session, status: "tour", tour, tourIndex: -1 });
     } catch (error) {
         await failRun(run.runId, error);
     }
 }
 
+/** Moves the tour to a stop; -1 is its opening summary. */
 async function showTourStop(index: number): Promise<void> {
     const session = await getSession();
-    const stop = session?.tour?.stops[index];
-    if (!session || session.status !== "tour" || !stop) return;
-
-    await setSession({ ...session, tourIndex: index });
-    await sendToTab<HighlightResult>(session.tabId, {
-        type: "content/highlight",
-        id: stop.elementId,
-        action: "read",
-        instruction: stop.title,
-        why: stop.text,
-        destination: "",
-    }).catch(() => {});
+    if (!session?.tour || session.status !== "tour") return;
+    if (index < -1 || index >= session.tour.stops.length) return;
+    await commit({ ...session, tourIndex: index });
 }
 
 // ---- Talking to the page -------------------------------------------------
 
-async function snapshotTab(tabId: number): Promise<SnapshotResult> {
-    // Injected on demand rather than declared in the manifest: the script runs
-    // only on pages where the person asked for help. It is a no-op if already present.
+/**
+ * Injected on demand rather than declared in the manifest: the script runs only on
+ * pages where the person asked for help. It is a no-op if already present, and it
+ * reads nothing from the page until asked for a snapshot.
+ */
+async function inject(tabId: number): Promise<void> {
     await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+}
+
+async function snapshotTab(tabId: number): Promise<SnapshotResult> {
+    await inject(tabId);
     return sendToTab<SnapshotResult>(tabId, { type: "content/snapshot" });
+}
+
+/** Shows a view on the page. False when its target is missing or the page can't be reached. */
+async function render(tabId: number, view: CompanionView): Promise<boolean> {
+    try {
+        const result = await sendToTab<RenderResult>(tabId, { type: "content/render", view });
+        return result?.found ?? false;
+    } catch {
+        return false;
+    }
+}
+
+async function clearTab(tabId: number): Promise<void> {
+    await sendToTab(tabId, { type: "content/clear" }).catch(() => {});
 }
 
 function sendToTab<Result>(tabId: number, request: ContentRequest): Promise<Result> {

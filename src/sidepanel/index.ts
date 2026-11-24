@@ -1,5 +1,5 @@
 import { getSession, SESSION_KEY } from "../shared/storage";
-import type { HighlightResult, PanelMessage, SessionState, SnapshotResult } from "../shared/types";
+import type { PanelMessage, RenderResult, SessionState, SnapshotResult } from "../shared/types";
 
 // The panel is a view of the session kept in storage: it sends commands to the
 // service worker and re-renders whenever the stored session changes.
@@ -11,6 +11,7 @@ const startError = byId("startError");
 const goalLine = byId("goalLine");
 const content = byId("content");
 const noteBox = byId("noteBox");
+const noteLabel = byId("noteLabel");
 const noteInput = byId<HTMLInputElement>("note");
 const actions = byId("actions");
 const debugOutput = byId("debugOutput");
@@ -35,7 +36,7 @@ byId("debugHighlight").addEventListener("click", async () => {
     const tabId = await activeTabId();
     const id = Number(byId<HTMLInputElement>("debugId").value);
     if (tabId === null || !id) return;
-    const result = await send<HighlightResult>({ type: "panel/debugHighlight", tabId, id });
+    const result = await send<RenderResult>({ type: "panel/debugHighlight", tabId, id });
     if (!result?.found) showDebug(`Елемента №${id} немає в останньому знімку.`);
 });
 
@@ -133,19 +134,35 @@ function renderStep(session: SessionState, stop: HTMLElement): void {
     if (step.why) stepCard.append(paragraph(step.why, "muted"));
     if (session.targetHost) stepCard.append(paragraph(`Посилання веде на ${session.targetHost}`, "muted"));
     if (session.message) stepCard.append(paragraph(session.message, "error"));
+    if (session.status === "need_info" && step.options.length > 0) {
+        // One click answers the question; the text field below stays for anything else.
+        const chips = document.createElement("div");
+        chips.className = "chips";
+        chips.append(
+            ...step.options.map((option) =>
+                button(option, () => send({ type: "panel/next", note: option })),
+            ),
+        );
+        stepCard.append(chips);
+    }
     content.append(stepCard);
 
     if (step.outline.length > 0 && session.status !== "done") {
-        const outline = card("Що, ймовірно, далі", "");
-        const list = document.createElement("ol");
-        list.append(...step.outline.map((item) => listItem(item)));
-        outline.append(list);
+        // Each item is a way forward the person can choose instead of the current step.
+        const outline = card("Що далі — можна перейти одразу", "");
+        const chips = document.createElement("div");
+        chips.className = "chips";
+        chips.append(
+            ...step.outline.map((item) => button(item, () => send({ type: "panel/jump", target: item }))),
+        );
+        outline.append(chips);
         content.append(outline);
     }
 
     const next = (): Promise<null> => send({ type: "panel/next", note: takeNote() });
     const wrong = (): Promise<null> => send({ type: "panel/wrong", note: takeNote() });
     noteBox.hidden = false;
+    noteLabel.textContent = "Уточнення (необов'язково)";
 
     switch (session.status) {
         case "done":
@@ -153,6 +170,7 @@ function renderStep(session: SessionState, stop: HTMLElement): void {
             actions.append(button("Завершити", () => send({ type: "panel/stop" }), true), button("Ще не все", wrong));
             break;
         case "need_info":
+            noteLabel.textContent = step.options.length > 0 ? "Або своя відповідь" : "Твоя відповідь";
             actions.append(button("Відповісти й далі", next, true), stop);
             break;
         case "stuck":
@@ -168,16 +186,18 @@ function renderTour(session: SessionState, stop: HTMLElement): void {
     if (!tour) return;
     content.append(card("Що це за сторінка", tour.summary));
 
+    // tourIndex -1 is the summary alone; the stops follow from 0.
     const current = tour.stops[session.tourIndex];
     if (current) {
         const stopCard = card(`Зупинка ${session.tourIndex + 1} із ${tour.stops.length}`, current.title);
         stopCard.append(paragraph(current.text, "muted"));
         content.append(stopCard);
-
+    }
+    if (tour.stops.length > 0) {
         const go = (index: number) => () => send({ type: "panel/tourGo", index });
         const back = button("Назад", go(session.tourIndex - 1));
-        const forward = button("Далі", go(session.tourIndex + 1), true);
-        back.disabled = session.tourIndex === 0;
+        const forward = button(current ? "Далі" : "Показати", go(session.tourIndex + 1), true);
+        back.disabled = session.tourIndex < 0;
         forward.disabled = session.tourIndex >= tour.stops.length - 1;
         actions.append(back, forward);
     }
@@ -228,12 +248,6 @@ function card(label: string, title: string): HTMLElement {
 function paragraph(text: string, className: string): HTMLElement {
     const el = document.createElement("p");
     el.className = className;
-    el.textContent = text;
-    return el;
-}
-
-function listItem(text: string): HTMLElement {
-    const el = document.createElement("li");
     el.textContent = text;
     return el;
 }
